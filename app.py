@@ -382,7 +382,11 @@ class AstroTradingFramework:
             planet_positions = self.planetary_positions.copy()
             
             # Simulate daily planetary movement
-            days_diff = (date - self.date.date()).days
+            # Convert both dates to date objects for consistent comparison
+            base_date = self.date.date()
+            current_date = date.date()
+            days_diff = (current_date - base_date).days
+            
             for planet in planet_positions:
                 daily_speed = {
                     'Sun': 1.0, 'Moon': 13.2, 'Mercury': 1.2, 'Venus': 1.1,
@@ -466,7 +470,11 @@ class AstroTradingFramework:
             planet_positions = self.planetary_positions.copy()
             
             # Simulate daily planetary movement
-            days_diff = (date - self.date.date()).days
+            # Convert both dates to date objects for consistent comparison
+            base_date = self.date.date()
+            current_date = date.date()
+            days_diff = (current_date - base_date).days
+            
             for planet in planet_positions:
                 daily_speed = {
                     'Sun': 1.0, 'Moon': 13.2, 'Mercury': 1.2, 'Venus': 1.1,
