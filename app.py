@@ -1,4 +1,4 @@
-# app.py - Fixed Streamlit Astrological Trading Analysis App
+# app.py - Enhanced with Moon Rotation Feature
 
 import streamlit as st
 import numpy as np
@@ -57,7 +57,7 @@ MARKET_CONFIGS = {
 # ======================
 
 class AstroTradingFramework:
-    def __init__(self, symbol, price, date=None, market_hours=None):
+    def __init__(self, symbol, price, date=None, market_hours=None, ascendant_degree=0):
         self.symbol = symbol.upper()
         self.price = price
         
@@ -82,6 +82,9 @@ class AstroTradingFramework:
         else:
             self.market_hours = self.config['default_hours']
         
+        # Set ascendant degree (for house calculation)
+        self.ascendant_degree = ascendant_degree
+        
         # Default planetary positions
         self.planetary_positions = self._get_planetary_positions()
         
@@ -94,6 +97,7 @@ class AstroTradingFramework:
         self.intraday_analysis = None
         self.weekly_analysis = None
         self.monthly_analysis = None
+        self.moon_rotation_analysis = None
     
     def _get_planetary_positions(self):
         """Get planetary positions for the specified date"""
@@ -158,6 +162,13 @@ class AstroTradingFramework:
                    'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces']
         index = int(angle // 30) % 12
         return zodiacs[index]
+    
+    def _get_house_from_angle(self, angle):
+        """Convert angle to house number (1-12) based on ascendant"""
+        # Adjust angle relative to ascendant
+        relative_angle = (angle - self.ascendant_degree) % 360
+        house = int(relative_angle // 30) + 1
+        return house
     
     def _calculate_aspect(self, angle1, angle2):
         """Calculate the angular distance between two points"""
@@ -322,6 +333,13 @@ class AstroTradingFramework:
                 
                 planet_positions[planet] = (planet_positions[planet] + speed * hour) % 360
             
+            # Get Moon position for this hour
+            moon_degree = planet_positions['Moon']
+            moon_house = self._get_house_from_angle(moon_degree)
+            
+            # Calculate rotated price positions based on Moon
+            rotated_positions = self._calculate_rotated_price_positions(moon_degree)
+            
             # Check aspects to price points
             price_aspects = {}
             for method, pos_data in self.price_positions.items():
@@ -355,10 +373,86 @@ class AstroTradingFramework:
                 'price_direction': price_direction,
                 'price_strength': price_strength,
                 'expected_high': expected_high,
-                'expected_low': expected_low
+                'expected_low': expected_low,
+                'moon_degree': moon_degree,
+                'moon_house': moon_house,
+                'rotated_positions': rotated_positions
             })
         
         self.intraday_analysis = analysis
+        return analysis
+    
+    def _calculate_rotated_price_positions(self, moon_degree):
+        """Calculate price positions rotated by Moon's position"""
+        rotated = {}
+        
+        # Method 1: Rotate by Moon's house
+        original_method1 = self.price % 12
+        moon_house = self._get_house_from_angle(moon_degree)
+        rotated_method1 = (original_method1 + moon_house - 1) % 12  # -1 because houses are 1-12
+        rotated['Method 1'] = {
+            'angle': rotated_method1 * 30,
+            'zodiac': self._get_zodiac_from_angle(rotated_method1 * 30),
+            'description': f"Rotated Position {rotated_method1:.1f}"
+        }
+        
+        # Method 2: Rotate by Moon's degree
+        original_method2 = self.price % 360
+        rotated_method2 = (original_method2 + moon_degree) % 360
+        rotated['Method 2'] = {
+            'angle': rotated_method2,
+            'zodiac': self._get_zodiac_from_angle(rotated_method2),
+            'description': f"Rotated {rotated_method2:.1f}°"
+        }
+        
+        # Method 3: Rotate by Moon's degree (scaled)
+        scale_factor = self.config['price_scale']
+        scaled_price = self.price % scale_factor
+        original_method3 = (scaled_price / scale_factor) * 12
+        rotated_method3 = (original_method3 + moon_degree / 30) % 12  # Convert degree to house units
+        rotated['Method 3'] = {
+            'angle': rotated_method3 * 30,
+            'zodiac': self._get_zodiac_from_angle(rotated_method3 * 30),
+            'description': f"Rotated Scaled Position {rotated_method3:.1f}"
+        }
+        
+        return rotated
+    
+    def generate_moon_rotation_analysis(self):
+        """Generate analysis of price rotation based on Moon's movement"""
+        if not self.intraday_analysis:
+            self.generate_intraday_analysis()
+        
+        analysis = []
+        
+        for hour_data in self.intraday_analysis:
+            # Get original and rotated positions
+            original_positions = self.price_positions
+            rotated_positions = hour_data['rotated_positions']
+            
+            # Calculate the rotation effect for each method
+            rotation_effects = {}
+            for method in ['Method 1', 'Method 2', 'Method 3']:
+                original_angle = original_positions[method]['angle']
+                rotated_angle = rotated_positions[method]['angle']
+                rotation_diff = (rotated_angle - original_angle) % 360
+                
+                rotation_effects[method] = {
+                    'original_angle': original_angle,
+                    'rotated_angle': rotated_angle,
+                    'rotation_diff': rotation_diff,
+                    'rotation_house': self._get_house_from_angle(rotated_angle)
+                }
+            
+            analysis.append({
+                'hour': hour_data['hour'],
+                'time': hour_data['time'],
+                'moon_degree': hour_data['moon_degree'],
+                'moon_house': hour_data['moon_house'],
+                'rotation_effects': rotation_effects
+            })
+        
+        self.moon_rotation_analysis = analysis
         return analysis
     
     def generate_weekly_analysis(self):
@@ -770,6 +864,76 @@ class AstroTradingFramework:
         plt.tight_layout()
         return fig
     
+    def create_moon_rotation_chart(self):
+        """Create chart showing price rotation based on Moon's movement"""
+        # Check if moon rotation analysis exists, if not generate it
+        if not self.moon_rotation_analysis:
+            self.generate_moon_rotation_analysis()
+        
+        # If still no analysis, return an empty figure
+        if not self.moon_rotation_analysis:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No moon rotation data available", 
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=16)
+            return fig
+        
+        # Prepare data
+        hours = [a['hour'] for a in self.moon_rotation_analysis]
+        times = [a['time'] for a in self.moon_rotation_analysis]
+        moon_degrees = [a['moon_degree'] for a in self.moon_rotation_analysis]
+        moon_houses = [a['moon_house'] for a in self.moon_rotation_analysis]
+        
+        # Create figure with subplots
+        fig = plt.figure(figsize=(16, 12))
+        
+        # Subplot 1: Moon's movement through houses
+        ax1 = fig.add_subplot(3, 1, 1)
+        ax1.plot(hours, moon_degrees, 'o-', color='silver', linewidth=2, markersize=8, label='Moon Degree')
+        ax1.set_ylabel('Moon Degree (0-360°)', fontsize=12)
+        ax1.set_title('Moon Movement Through Zodiac', fontsize=14, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+        
+        # Add house boundaries
+        for i in range(13):
+            house_degree = (i * 30 + self.ascendant_degree) % 360
+            ax1.axhline(y=house_degree, color='gray', linestyle='--', alpha=0.5)
+            ax1.text(hours[0], house_degree, f'House {i}', fontsize=8, alpha=0.7)
+        
+        # Subplot 2: Moon's house transitions
+        ax2 = fig.add_subplot(3, 1, 2)
+        ax2.plot(hours, moon_houses, 'o-', color='purple', linewidth=2, markersize=8, label='Moon House')
+        ax2.set_ylabel('Moon House (1-12)', fontsize=12)
+        ax2.set_title('Moon House Transitions', fontsize=14, fontweight='bold')
+        ax2.set_ylim(0.5, 12.5)
+        ax2.set_yticks(range(1, 13))
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+        
+        # Subplot 3: Price rotation effects for Method 1
+        ax3 = fig.add_subplot(3, 1, 3)
+        original_angles = [self.price_positions['Method 1']['angle']] * len(hours)
+        rotated_angles = [a['rotation_effects']['Method 1']['rotated_angle'] for a in self.moon_rotation_analysis]
+        
+        ax3.plot(hours, original_angles, 'r--', linewidth=2, label='Original Position', alpha=0.7)
+        ax3.plot(hours, rotated_angles, 'b-', linewidth=2, label='Rotated Position')
+        ax3.set_ylabel('Price Angle (degrees)', fontsize=12)
+        ax3.set_xlabel('Time', fontsize=12)
+        ax3.set_title('Price Rotation Effect - Method 1', fontsize=14, fontweight='bold')
+        ax3.set_xticks(hours[::2])
+        ax3.set_xticklabels([times[i] for i in range(0, len(times), 2)], rotation=45)
+        ax3.grid(True, alpha=0.3)
+        ax3.legend()
+        
+        # Add house boundaries to subplot 3
+        for i in range(13):
+            house_degree = (i * 30 + self.ascendant_degree) % 360
+            ax3.axhline(y=house_degree, color='gray', linestyle='--', alpha=0.5)
+        
+        plt.tight_layout()
+        return fig
+    
     def create_weekly_chart(self):
         """Create weekly price prediction chart with planetary transits"""
         # Check if weekly analysis exists, if not generate it
@@ -918,6 +1082,24 @@ class AstroTradingFramework:
             df = pd.DataFrame(self.monthly_analysis)
             df['date'] = df['date'].dt.strftime('%Y-%m-%d')
             return df
+        elif analysis_type == 'moon_rotation' and self.moon_rotation_analysis:
+            df = pd.DataFrame(self.moon_rotation_analysis)
+            # Flatten rotation effects for display
+            rotation_data = []
+            for item in df.to_dict('records'):
+                base_data = {
+                    'hour': item['hour'],
+                    'time': item['time'],
+                    'moon_degree': item['moon_degree'],
+                    'moon_house': item['moon_house']
+                }
+                for method, effects in item['rotation_effects'].items():
+                    base_data[f'{method}_original_angle'] = effects['original_angle']
+                    base_data[f'{method}_rotated_angle'] = effects['rotated_angle']
+                    base_data[f'{method}_rotation_diff'] = effects['rotation_diff']
+                    base_data[f'{method}_rotation_house'] = effects['rotation_house']
+                rotation_data.append(base_data)
+            return pd.DataFrame(rotation_data)
         return pd.DataFrame()
 
 # ======================
@@ -983,12 +1165,15 @@ def main():
     # Date selection
     selected_date = st.sidebar.date_input("Select Date", datetime.now().date())
     
+    # Ascendant degree input (for house calculation)
+    ascendant_degree = st.sidebar.number_input("Ascendant Degree (0-360)", min_value=0.0, max_value=360.0, value=0.0, step=1.0)
+    
     # Analysis type
-    analysis_type = st.sidebar.radio("Analysis Type", ["Daily", "Intraday", "Weekly", "Monthly"])
+    analysis_type = st.sidebar.radio("Analysis Type", ["Daily", "Intraday", "Weekly", "Monthly", "Moon Rotation"])
     
     # Custom market hours for intraday
     market_hours = None
-    if analysis_type == "Intraday":
+    if analysis_type in ["Intraday", "Moon Rotation"]:
         use_custom_hours = st.sidebar.checkbox("Use Custom Market Hours")
         
         if use_custom_hours:
@@ -1015,7 +1200,8 @@ def main():
             symbol=symbol, 
             price=price, 
             date=selected_date,
-            market_hours=market_hours
+            market_hours=market_hours,
+            ascendant_degree=ascendant_degree
         )
         
         # Generate signals
@@ -1028,6 +1214,9 @@ def main():
             analysis.generate_weekly_analysis()
         elif analysis_type == "Monthly":
             analysis.generate_monthly_analysis()
+        elif analysis_type == "Moon Rotation":
+            analysis.generate_intraday_analysis()
+            analysis.generate_moon_rotation_analysis()
         
         # Display results
         st.header(f"{symbol} Analysis Results")
@@ -1037,7 +1226,8 @@ def main():
         planet_data = []
         for planet, angle in analysis.planetary_positions.items():
             zodiac = analysis._get_zodiac_from_angle(angle)
-            planet_data.append({"Planet": planet, "Angle": f"{angle:.2f}°", "Zodiac": zodiac})
+            house = analysis._get_house_from_angle(angle)
+            planet_data.append({"Planet": planet, "Angle": f"{angle:.2f}°", "Zodiac": zodiac, "House": house})
         
         planet_df = pd.DataFrame(planet_data)
         st.dataframe(planet_df, use_container_width=True)
@@ -1050,7 +1240,8 @@ def main():
                 "Method": method, 
                 "Description": data['description'], 
                 "Angle": f"{data['angle']:.2f}°", 
-                "Zodiac": data['zodiac']
+                "Zodiac": data['zodiac'],
+                "House": analysis._get_house_from_angle(data['angle'])
             })
         
         price_df = pd.DataFrame(price_data)
@@ -1113,39 +1304,82 @@ def main():
                 st.info("No opportunity signals")
         
         # Display analysis data
-        if analysis_type in ["Intraday", "Weekly", "Monthly"]:
+        if analysis_type in ["Intraday", "Weekly", "Monthly", "Moon Rotation"]:
             st.subheader(f"{analysis_type} Analysis")
             
             # Get DataFrame
-            df = analysis.get_analysis_dataframe(analysis_type.lower())
+            df = analysis.get_analysis_dataframe(analysis_type.lower().replace(" ", "_"))
             
             if not df.empty:
                 st.dataframe(df, use_container_width=True)
                 
-                # Display key periods
-                if analysis_type == "Intraday":
-                    key_periods = [a for a in analysis.intraday_analysis if a['price_strength'] >= 3]
-                elif analysis_type == "Weekly":
-                    key_periods = [a for a in analysis.weekly_analysis if a['price_strength'] >= 3]
-                elif analysis_type == "Monthly":
-                    key_periods = [a for a in analysis.monthly_analysis if a['price_strength'] >= 3]
+                # Display key periods for intraday, weekly, monthly
+                if analysis_type in ["Intraday", "Weekly", "Monthly"]:
+                    if analysis_type == "Intraday":
+                        key_periods = [a for a in analysis.intraday_analysis if a['price_strength'] >= 3]
+                    elif analysis_type == "Weekly":
+                        key_periods = [a for a in analysis.weekly_analysis if a['price_strength'] >= 3]
+                    elif analysis_type == "Monthly":
+                        key_periods = [a for a in analysis.monthly_analysis if a['price_strength'] >= 3]
+                    
+                    if key_periods:
+                        st.subheader(f"Key {analysis_type} Periods")
+                        for period in key_periods:
+                            if analysis_type == "Intraday":
+                                time_key = period['time']
+                            elif analysis_type == "Weekly":
+                                time_key = f"{period['day_name']} ({period['date'].strftime('%m-%d')})"
+                            elif analysis_type == "Monthly":
+                                time_key = f"Day {period['day']} ({period['date'].strftime('%m-%d')})"
+                            
+                            if period['price_direction'] == 'Bullish':
+                                st.success(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
+                            elif period['price_direction'] == 'Bearish':
+                                st.error(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
+                            else:
+                                st.info(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
                 
-                if key_periods:
-                    st.subheader(f"Key {analysis_type} Periods")
-                    for period in key_periods:
-                        if analysis_type == "Intraday":
-                            time_key = period['time']
-                        elif analysis_type == "Weekly":
-                            time_key = f"{period['day_name']} ({period['date'].strftime('%m-%d')})"
-                        elif analysis_type == "Monthly":
-                            time_key = f"Day {period['day']} ({period['date'].strftime('%m-%d')})"
-                        
-                        if period['price_direction'] == 'Bullish':
-                            st.success(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
-                        elif period['price_direction'] == 'Bearish':
-                            st.error(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
-                        else:
-                            st.info(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
+                # Display moon rotation insights
+                if analysis_type == "Moon Rotation" and analysis.moon_rotation_analysis:
+                    st.subheader("Moon Rotation Insights")
+                    
+                    # Find when Moon changes houses
+                    house_changes = []
+                    for i in range(1, len(analysis.moon_rotation_analysis)):
+                        prev_house = analysis.moon_rotation_analysis[i-1]['moon_house']
+                        curr_house = analysis.moon_rotation_analysis[i]['moon_house']
+                        if prev_house != curr_house:
+                            house_changes.append({
+                                'time': analysis.moon_rotation_analysis[i]['time'],
+                                'from_house': prev_house,
+                                'to_house': curr_house,
+                                'moon_degree': analysis.moon_rotation_analysis[i]['moon_degree']
+                            })
+                    
+                    if house_changes:
+                        st.markdown("#### Moon House Changes")
+                        for change in house_changes:
+                            st.info(f"**{change['time']}**: Moon moved from House {change['from_house']} to House {change['to_house']} (at {change['moon_degree']:.1f}°)")
+                    
+                    # Find significant price rotations
+                    significant_rotations = []
+                    for hour_data in analysis.moon_rotation_analysis:
+                        for method, effects in hour_data['rotation_effects'].items():
+                            if abs(effects['rotation_diff']) > 30:  # More than 30 degrees rotation
+                                significant_rotations.append({
+                                    'time': hour_data['time'],
+                                    'method': method,
+                                    'rotation_diff': effects['rotation_diff'],
+                                    'new_house': effects['rotation_house']
+                                })
+                    
+                    if significant_rotations:
+                        st.markdown("#### Significant Price Rotations")
+                        for rotation in significant_rotations:
+                            if rotation['rotation_diff'] > 0:
+                                st.success(f"**{rotation['time']}**: {rotation['method']} rotated +{rotation['rotation_diff']:.1f}° to House {rotation['new_house']}")
+                            else:
+                                st.error(f"**{rotation['time']}**: {rotation['method']} rotated {rotation['rotation_diff']:.1f}° to House {rotation['new_house']}")
         
         # Display charts
         st.subheader("Visualizations")
@@ -1169,6 +1403,10 @@ def main():
             elif analysis_type == "Monthly":
                 st.markdown("#### Monthly Price Prediction with Transits")
                 fig2 = analysis.create_monthly_chart()
+                st.pyplot(fig2)
+            elif analysis_type == "Moon Rotation":
+                st.markdown("#### Moon Rotation Analysis")
+                fig2 = analysis.create_moon_rotation_chart()
                 st.pyplot(fig2)
             else:
                 st.info("Additional charts not available for daily analysis")
