@@ -1,31 +1,80 @@
+# app.py - Enhanced Streamlit Astrological Trading Analysis App
+
+import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import math
 from datetime import datetime, timedelta
 import pytz
+import pandas as pd
+from matplotlib.dates import DateFormatter, DayLocator
+import matplotlib.dates as mdates
+
+# ======================
+# MARKET CONFIGURATIONS
+# ======================
+MARKET_CONFIGS = {
+    'NIFTY': {
+        'timezone': 'Asia/Kolkata',
+        'default_hours': (9, 15, 15, 30),  # 9:15 AM to 3:30 PM
+        'price_scale': 100,
+        'volatility_factor': 0.0015,
+        'trading_days': 'mon-fri'  # Monday to Friday
+    },
+    'BANKNIFTY': {
+        'timezone': 'Asia/Kolkata',
+        'default_hours': (9, 15, 15, 30),
+        'price_scale': 100,
+        'volatility_factor': 0.002,
+        'trading_days': 'mon-fri'
+    },
+    'CRUDE': {
+        'timezone': 'America/New_York',
+        'default_hours': (5, 0, 23, 55),
+        'price_scale': 10,
+        'volatility_factor': 0.003,
+        'trading_days': 'mon-fri'
+    },
+    'SILVER': {
+        'timezone': 'America/New_York',
+        'default_hours': (5, 0, 23, 55),
+        'price_scale': 1,
+        'volatility_factor': 0.002,
+        'trading_days': 'mon-fri'
+    },
+    'GOLD': {
+        'timezone': 'America/New_York',
+        'default_hours': (5, 0, 23, 55),
+        'price_scale': 1,
+        'volatility_factor': 0.002,
+        'trading_days': 'mon-fri'
+    }
+}
 
 # ======================
 # ASTROLOGICAL TRADING FRAMEWORK
 # ======================
 
 class AstroTradingFramework:
-    def __init__(self, symbol, price, date=None, timezone='America/New_York'):
-        """
-        Initialize the framework for a specific symbol and price
-        
-        Parameters:
-        - symbol: Trading symbol (e.g., 'GC=F' for Gold, 'ES=F' for S&P 500)
-        - price: Current or closing price
-        - date: Date for analysis (default: today)
-        - timezone: Market timezone (default: US Eastern)
-        """
-        self.symbol = symbol
+    def __init__(self, symbol, price, date=None, market_hours=None):
+        self.symbol = symbol.upper()
         self.price = price
         self.date = date if date else datetime.now()
-        self.timezone = timezone
         
-        # Default planetary positions (will be updated with actual calculation)
+        # Get market configuration
+        if self.symbol in MARKET_CONFIGS:
+            self.config = MARKET_CONFIGS[self.symbol]
+        else:
+            self.config = MARKET_CONFIGS['GOLD']
+        
+        # Use custom market hours if provided, otherwise use default
+        if market_hours:
+            self.market_hours = market_hours
+        else:
+            self.market_hours = self.config['default_hours']
+        
+        # Default planetary positions
         self.planetary_positions = self._get_planetary_positions()
         
         # Calculate price positions
@@ -35,6 +84,8 @@ class AstroTradingFramework:
         self.aspects = None
         self.signals = None
         self.intraday_analysis = None
+        self.weekly_analysis = None
+        self.monthly_analysis = None
     
     def _get_planetary_positions(self):
         """Get planetary positions for the specified date"""
@@ -81,9 +132,8 @@ class AstroTradingFramework:
             'description': f"{method2_angle}°"
         }
         
-        # Method 3: Scaled Modulo (adjust scale based on typical price range)
-        # This is a simplified approach - in practice, you'd adjust the scale based on the asset
-        scale_factor = 1000 if self.price > 1000 else 100
+        # Method 3: Scaled Modulo
+        scale_factor = self.config['price_scale']
         scaled_price = self.price % scale_factor
         method3_pos = (scaled_price / scale_factor) * 12
         positions['Method 3'] = {
@@ -217,35 +267,27 @@ class AstroTradingFramework:
         self.signals = signals
         return signals
     
-    def generate_intraday_analysis(self, market_open=None, market_close=None):
-        """
-        Generate intraday analysis with price predictions
-        
-        Parameters:
-        - market_open: Market open time (default: 5:00 AM)
-        - market_close: Market close time (default: 11:55 PM)
-        """
-        if not market_open:
-            market_open = self.date.replace(hour=5, minute=0)
-        if not market_close:
-            market_close = self.date.replace(hour=23, minute=55)
+    def generate_intraday_analysis(self):
+        """Generate intraday analysis with price predictions"""
+        start_hour, start_minute, end_hour, end_minute = self.market_hours
         
         # Create time grid for analysis (hourly)
         hours = []
-        current_time = market_open
-        while current_time <= market_close:
+        current_time = self.date.replace(hour=start_hour, minute=start_minute)
+        end_time = self.date.replace(hour=end_hour, minute=end_minute)
+        
+        while current_time <= end_time:
             hours.append(current_time.hour + current_time.minute/60)
             current_time += timedelta(hours=1)
         
         analysis = []
         
         for hour in hours:
-            # Get planetary positions for this hour (simplified - in practice would calculate more precisely)
+            # Get planetary positions for this hour
             planet_positions = self.planetary_positions.copy()
             
-            # Simulate planetary movement (simplified)
+            # Simulate planetary movement
             for planet in planet_positions:
-                # Planets move at different speeds
                 speed = {
                     'Sun': 0.04, 'Moon': 0.5, 'Mercury': 0.05, 'Venus': 0.03,
                     'Mars': 0.03, 'Jupiter': 0.01, 'Saturn': 0.005,
@@ -293,9 +335,166 @@ class AstroTradingFramework:
         self.intraday_analysis = analysis
         return analysis
     
+    def generate_weekly_analysis(self):
+        """Generate weekly analysis with price predictions"""
+        # Get the start of the week (Monday)
+        start_date = self.date - timedelta(days=self.date.weekday())
+        
+        # Create date grid for the week
+        dates = []
+        for i in range(7):
+            dates.append(start_date + timedelta(days=i))
+        
+        analysis = []
+        
+        for date in dates:
+            # Skip weekends for stock market symbols
+            if self.config['trading_days'] == 'mon-fri' and date.weekday() >= 5:
+                continue
+            
+            # Get planetary positions for this date
+            planet_positions = self.planetary_positions.copy()
+            
+            # Simulate daily planetary movement
+            days_diff = (date - self.date).days
+            for planet in planet_positions:
+                daily_speed = {
+                    'Sun': 1.0, 'Moon': 13.2, 'Mercury': 1.2, 'Venus': 1.1,
+                    'Mars': 0.5, 'Jupiter': 0.08, 'Saturn': 0.03,
+                    'Uranus': 0.04, 'Neptune': 0.02, 'Pluto': 0.03
+                }.get(planet, 0.1)
+                
+                planet_positions[planet] = (planet_positions[planet] + daily_speed * days_diff) % 360
+            
+            # Check aspects to price points
+            price_aspects = {}
+            for method, pos_data in self.price_positions.items():
+                price_aspects[method] = []
+                for planet, planet_angle in planet_positions.items():
+                    aspect_diff = self._calculate_aspect(pos_data['angle'], planet_angle)
+                    
+                    aspect_types = {
+                        'Conjunction': 0, 'Sextile': 60, 'Square': 90, 'Trine': 120, 'Opposition': 180
+                    }
+                    
+                    for aspect_name, aspect_angle in aspect_types.items():
+                        if abs(aspect_diff - aspect_angle) <= 5:  # 5-degree orb
+                            price_aspects[method].append({
+                                'planet': planet,
+                                'aspect': aspect_name,
+                                'orb': abs(aspect_diff - aspect_angle)
+                            })
+            
+            # Determine price direction and strength
+            price_direction, price_strength = self._predict_price_movement(price_aspects, date.hour)
+            
+            # Calculate expected price range
+            expected_high, expected_low = self._calculate_price_range(
+                self.price, price_direction, price_strength, date.hour
+            )
+            
+            # Simulate actual price (for demonstration)
+            actual_price = (expected_high + expected_low) / 2 + np.random.normal(0, (expected_high - expected_low) * 0.1)
+            
+            analysis.append({
+                'date': date,
+                'day_name': date.strftime('%a'),
+                'price_direction': price_direction,
+                'price_strength': price_strength,
+                'expected_high': expected_high,
+                'expected_low': expected_low,
+                'actual_price': actual_price,
+                'planet_positions': planet_positions
+            })
+        
+        self.weekly_analysis = analysis
+        return analysis
+    
+    def generate_monthly_analysis(self):
+        """Generate monthly analysis with price predictions"""
+        # Get the first day of the month
+        start_date = self.date.replace(day=1)
+        
+        # Get the number of days in the month
+        if start_date.month == 12:
+            next_month = start_date.replace(year=start_date.year + 1, month=1)
+        else:
+            next_month = start_date.replace(month=start_date.month + 1)
+        
+        days_in_month = (next_month - start_date).days
+        
+        # Create date grid for the month
+        dates = []
+        for i in range(days_in_month):
+            dates.append(start_date + timedelta(days=i))
+        
+        analysis = []
+        
+        for date in dates:
+            # Skip weekends for stock market symbols
+            if self.config['trading_days'] == 'mon-fri' and date.weekday() >= 5:
+                continue
+            
+            # Get planetary positions for this date
+            planet_positions = self.planetary_positions.copy()
+            
+            # Simulate daily planetary movement
+            days_diff = (date - self.date).days
+            for planet in planet_positions:
+                daily_speed = {
+                    'Sun': 1.0, 'Moon': 13.2, 'Mercury': 1.2, 'Venus': 1.1,
+                    'Mars': 0.5, 'Jupiter': 0.08, 'Saturn': 0.03,
+                    'Uranus': 0.04, 'Neptune': 0.02, 'Pluto': 0.03
+                }.get(planet, 0.1)
+                
+                planet_positions[planet] = (planet_positions[planet] + daily_speed * days_diff) % 360
+            
+            # Check aspects to price points
+            price_aspects = {}
+            for method, pos_data in self.price_positions.items():
+                price_aspects[method] = []
+                for planet, planet_angle in planet_positions.items():
+                    aspect_diff = self._calculate_aspect(pos_data['angle'], planet_angle)
+                    
+                    aspect_types = {
+                        'Conjunction': 0, 'Sextile': 60, 'Square': 90, 'Trine': 120, 'Opposition': 180
+                    }
+                    
+                    for aspect_name, aspect_angle in aspect_types.items():
+                        if abs(aspect_diff - aspect_angle) <= 5:  # 5-degree orb
+                            price_aspects[method].append({
+                                'planet': planet,
+                                'aspect': aspect_name,
+                                'orb': abs(aspect_diff - aspect_angle)
+                            })
+            
+            # Determine price direction and strength
+            price_direction, price_strength = self._predict_price_movement(price_aspects, date.hour)
+            
+            # Calculate expected price range
+            expected_high, expected_low = self._calculate_price_range(
+                self.price, price_direction, price_strength, date.hour
+            )
+            
+            # Simulate actual price (for demonstration)
+            actual_price = (expected_high + expected_low) / 2 + np.random.normal(0, (expected_high - expected_low) * 0.1)
+            
+            analysis.append({
+                'date': date,
+                'day': date.day,
+                'price_direction': price_direction,
+                'price_strength': price_strength,
+                'expected_high': expected_high,
+                'expected_low': expected_low,
+                'actual_price': actual_price,
+                'planet_positions': planet_positions
+            })
+        
+        self.monthly_analysis = analysis
+        return analysis
+    
     def _predict_price_movement(self, price_aspects, hour):
         """Predict price movement based on aspects"""
-        # Score for bullish/bearish influences
         bullish_score = 0
         bearish_score = 0
         
@@ -311,19 +510,19 @@ class AstroTradingFramework:
                 # Malefic planets in challenging aspects
                 elif planet in ['Mars', 'Saturn'] and aspect_type in ['Opposition', 'Square']:
                     bearish_score += 3
-                # Moon aspects (moderate influence)
+                # Moon aspects
                 elif planet == 'Moon':
                     if aspect_type in ['Conjunction', 'Trine', 'Sextile']:
                         bullish_score += 1
                     else:
                         bearish_score += 1
         
-        # Consider time of day (simplified)
-        if 9 <= hour <= 11:  # Morning strength
+        # Consider time of day
+        if 9 <= hour <= 11:
             bullish_score += 1
-        elif 14 <= hour <= 16:  # Afternoon strength
+        elif 14 <= hour <= 16:
             bullish_score += 1
-        elif 20 <= hour <= 22:  # Evening strength
+        elif 20 <= hour <= 22:
             bearish_score += 1
         
         # Determine direction and strength
@@ -340,18 +539,13 @@ class AstroTradingFramework:
         return direction, strength
     
     def _calculate_price_range(self, current_price, direction, strength, hour):
-        """Calculate expected price range for the hour"""
-        # Base volatility factor
-        base_volatility = 0.002  # 0.2% of price
-        
-        # Adjust based on strength
+        """Calculate expected price range"""
+        base_volatility = self.config['volatility_factor']
         volatility_multiplier = 0.5 + (strength * 0.3)
         
-        # Time-based adjustment (higher volatility during key hours)
-        if hour in [9, 10, 14, 15, 20, 21]:  # Key trading hours
+        if hour in [9, 10, 14, 15, 20, 21]:
             volatility_multiplier *= 1.5
         
-        # Calculate range
         price_change = current_price * base_volatility * volatility_multiplier
         
         if direction == 'Bullish':
@@ -360,15 +554,15 @@ class AstroTradingFramework:
         elif direction == 'Bearish':
             expected_high = current_price + (price_change * 0.3)
             expected_low = current_price - price_change
-        else:  # Neutral
+        else:
             expected_high = current_price + (price_change * 0.5)
             expected_low = current_price - (price_change * 0.5)
         
         return round(expected_high, 2), round(expected_low, 2)
     
-    def create_chart(self, show_aspects=True, show_intraday=False):
+    def create_chart(self, show_aspects=True):
         """Create the astrological chart visualization"""
-        fig = plt.figure(figsize=(16, 16))
+        fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, polar=True)
         
         # Zodiac signs and houses
@@ -377,8 +571,8 @@ class AstroTradingFramework:
         houses = list(range(1, 13))
         
         # Set up the chart
-        ax.set_theta_zero_location('N')  # 0 degrees at top
-        ax.set_theta_direction(-1)  # Clockwise direction
+        ax.set_theta_zero_location('N')
+        ax.set_theta_direction(-1)
         ax.set_ylim(0, 12)
         
         # Draw zodiac segments
@@ -487,7 +681,7 @@ class AstroTradingFramework:
         strengths = [a['price_strength'] for a in self.intraday_analysis]
         
         # Create figure
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), gridspec_kw={'height_ratios': [3, 1]})
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), gridspec_kw={'height_ratios': [3, 1]})
         
         # Price chart
         ax1.fill_between(hours, expected_lows, expected_highs, alpha=0.3, color='gold', label='Expected Range')
@@ -505,7 +699,7 @@ class AstroTradingFramework:
         ax1.set_title(f'{self.symbol} Intraday Price Prediction - {self.date.strftime("%Y-%m-%d")}', 
                      fontsize=16, fontweight='bold')
         ax1.set_ylabel('Price', fontsize=12)
-        ax1.set_xticks(hours[::2])  # Show every other hour
+        ax1.set_xticks(hours[::2])
         ax1.set_xticklabels([times[i] for i in range(0, len(times), 2)], rotation=45)
         ax1.grid(True, alpha=0.3)
         ax1.legend()
@@ -531,199 +725,394 @@ class AstroTradingFramework:
         plt.tight_layout()
         return fig
     
-    def print_analysis(self):
-        """Print the complete analysis"""
-        print(f"=== {self.symbol} ASTROLOGICAL TRADING ANALYSIS ===\n")
-        print(f"Date: {self.date.strftime('%Y-%m-%d')}")
-        print(f"Price: {self.price}\n")
+    def create_weekly_chart(self):
+        """Create weekly price prediction chart with planetary transits"""
+        if not self.weekly_analysis:
+            self.generate_weekly_analysis()
         
-        # Planetary positions
-        print("1. Planetary Positions:")
-        for planet, angle in self.planetary_positions.items():
-            zodiac = self._get_zodiac_from_angle(angle)
-            print(f"   {planet}: {angle:.2f}° {zodiac}")
+        # Prepare data
+        dates = [a['date'] for a in self.weekly_analysis]
+        day_names = [a['day_name'] for a in self.weekly_analysis]
+        expected_highs = [a['expected_high'] for a in self.weekly_analysis]
+        expected_lows = [a['expected_low'] for a in self.weekly_analysis]
+        actual_prices = [a['actual_price'] for a in self.weekly_analysis]
+        directions = [a['price_direction'] for a in self.weekly_analysis]
+        strengths = [a['price_strength'] for a in self.weekly_analysis]
         
-        # Price positions
-        print("\n2. Price Positions:")
-        for method, data in self.price_positions.items():
-            print(f"   {method}: {data['description']} at {data['angle']:.2f}° {data['zodiac']}")
+        # Get planetary positions for the week (Sun and Moon for example)
+        sun_positions = [a['planet_positions']['Sun'] for a in self.weekly_analysis]
+        moon_positions = [a['planet_positions']['Moon'] for a in self.weekly_analysis]
         
-        # Aspects
-        if not self.aspects:
-            self.aspects = self._check_aspects()
+        # Create figure with two y-axes
+        fig, ax1 = plt.subplots(figsize=(14, 8))
+        ax2 = ax1.twinx()
         
-        print("\n3. Aspects:")
-        for method, method_aspects in self.aspects.items():
-            print(f"\n   {method} aspects:")
-            if method_aspects:
-                for aspect in method_aspects:
-                    print(f"     {aspect['planet']} {aspect['aspect']} (orb: {aspect['orb']:.2f}°)")
-            else:
-                print("     No significant aspects")
+        # Plot price data
+        ax1.fill_between(dates, expected_lows, expected_highs, alpha=0.3, color='gold', label='Expected Range')
+        ax1.plot(dates, expected_highs, 'g--', linewidth=1, alpha=0.7, label='Expected High')
+        ax1.plot(dates, expected_lows, 'r--', linewidth=1, alpha=0.7, label='Expected Low')
+        ax1.plot(dates, actual_prices, 'b-', linewidth=2, label='Actual Price')
         
-        # Trading signals
-        if not self.signals:
-            self.signals = self.generate_signals()
+        # Mark key events
+        for i, (date, direction, strength) in enumerate(zip(dates, directions, strengths)):
+            if direction == 'Bullish':
+                ax1.scatter(date, actual_prices[i], color='green', s=strength*30, alpha=0.7, zorder=5)
+            elif direction == 'Bearish':
+                ax1.scatter(date, actual_prices[i], color='red', s=strength*30, alpha=0.7, zorder=5)
         
-        print("\n4. Trading Signals:")
-        print("\n   BUY SIGNALS:")
-        for signal in self.signals['buy']:
-            print(f"     - {signal['reason']} (Strength: {signal['strength']}/5)")
+        # Plot planetary positions on secondary axis
+        ax2.plot(dates, sun_positions, 'o-', color='gold', linewidth=2, markersize=8, label='Sun Position')
+        ax2.plot(dates, moon_positions, 'o-', color='silver', linewidth=2, markersize=8, label='Moon Position')
         
-        print("\n   SELL SIGNALS:")
-        for signal in self.signals['sell']:
-            print(f"     - {signal['reason']} (Strength: {signal['strength']}/5)")
+        # Formatting
+        ax1.set_title(f'{self.symbol} Weekly Price Prediction with Planetary Transits\n'
+                     f'Week of {self.date.strftime("%Y-%m-%d")}', fontsize=16, fontweight='bold')
+        ax1.set_xlabel('Date', fontsize=12)
+        ax1.set_ylabel('Price', fontsize=12, color='blue')
+        ax2.set_ylabel('Planetary Position (degrees)', fontsize=12, color='orange')
         
-        print("\n   CAUTION SIGNALS:")
-        for signal in self.signals['caution']:
-            print(f"     - {signal['reason']} (Strength: {signal['strength']}/5)")
+        # Format x-axis
+        ax1.xaxis.set_major_formatter(DateFormatter('%a %m-%d'))
+        ax1.xaxis.set_major_locator(DayLocator())
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
         
-        print("\n   OPPORTUNITY SIGNALS:")
-        for signal in self.signals['opportunity']:
-            print(f"     - {signal['reason']} (Strength: {signal['strength']}/5)")
+        # Grid and legends
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(loc='upper left')
+        ax2.legend(loc='upper right')
         
-        # Intraday analysis
-        if self.intraday_analysis:
-            print("\n5. Intraday Price Predictions:")
-            print("   Time     | Direction | Strength | Expected High | Expected Low")
-            print("   " + "-"*60)
-            
-            for a in self.intraday_analysis:
-                print(f"   {a['time']} | {a['price_direction']:9} | {a['price_strength']:8} | {a['expected_high']:13.2f} | {a['expected_low']:12.2f}")
-            
-            print("\n6. Key Trading Hours:")
-            key_hours = []
-            for a in self.intraday_analysis:
-                if a['price_strength'] >= 3:
-                    key_hours.append(a)
-            
-            if key_hours:
-                print("   High-activity periods (Strength 3+):")
-                for hour in key_hours:
-                    print(f"   - {hour['time']}: {hour['price_direction']} (Strength {hour['price_strength']})")
-            else:
-                print("   No high-activity periods predicted for today")
+        plt.tight_layout()
+        return fig
+    
+    def create_monthly_chart(self):
+        """Create monthly price prediction chart with planetary transits"""
+        if not self.monthly_analysis:
+            self.generate_monthly_analysis()
         
-        print("\n=== ANALYSIS COMPLETE ===")
-
-
-# ======================
-# USAGE EXAMPLES
-# ======================
-
-def analyze_gold():
-    """Example: Analyze Gold"""
-    print("Analyzing Gold (GC=F)...")
-    gold = AstroTradingFramework(symbol='GC=F', price=3363, date=datetime(2025, 8, 4))
-    gold.generate_signals()
-    gold.generate_intraday_analysis()
-    gold.print_analysis()
+        # Prepare data
+        dates = [a['date'] for a in self.monthly_analysis]
+        days = [a['day'] for a in self.monthly_analysis]
+        expected_highs = [a['expected_high'] for a in self.monthly_analysis]
+        expected_lows = [a['expected_low'] for a in self.monthly_analysis]
+        actual_prices = [a['actual_price'] for a in self.monthly_analysis]
+        directions = [a['price_direction'] for a in self.monthly_analysis]
+        strengths = [a['price_strength'] for a in self.monthly_analysis]
+        
+        # Get planetary positions for the month (Sun and Moon for example)
+        sun_positions = [a['planet_positions']['Sun'] for a in self.monthly_analysis]
+        moon_positions = [a['planet_positions']['Moon'] for a in self.monthly_analysis]
+        
+        # Create figure with two y-axes
+        fig, ax1 = plt.subplots(figsize=(16, 8))
+        ax2 = ax1.twinx()
+        
+        # Plot price data
+        ax1.fill_between(dates, expected_lows, expected_highs, alpha=0.3, color='gold', label='Expected Range')
+        ax1.plot(dates, expected_highs, 'g--', linewidth=1, alpha=0.7, label='Expected High')
+        ax1.plot(dates, expected_lows, 'r--', linewidth=1, alpha=0.7, label='Expected Low')
+        ax1.plot(dates, actual_prices, 'b-', linewidth=2, label='Actual Price')
+        
+        # Mark key events
+        for i, (date, direction, strength) in enumerate(zip(dates, directions, strengths)):
+            if direction == 'Bullish':
+                ax1.scatter(date, actual_prices[i], color='green', s=strength*20, alpha=0.7, zorder=5)
+            elif direction == 'Bearish':
+                ax1.scatter(date, actual_prices[i], color='red', s=strength*20, alpha=0.7, zorder=5)
+        
+        # Plot planetary positions on secondary axis
+        ax2.plot(dates, sun_positions, 'o-', color='gold', linewidth=2, markersize=6, label='Sun Position')
+        ax2.plot(dates, moon_positions, 'o-', color='silver', linewidth=2, markersize=6, label='Moon Position')
+        
+        # Formatting
+        ax1.set_title(f'{self.symbol} Monthly Price Prediction with Planetary Transits\n'
+                     f'{self.date.strftime("%B %Y")}', fontsize=16, fontweight='bold')
+        ax1.set_xlabel('Date', fontsize=12)
+        ax1.set_ylabel('Price', fontsize=12, color='blue')
+        ax2.set_ylabel('Planetary Position (degrees)', fontsize=12, color='orange')
+        
+        # Format x-axis
+        ax1.xaxis.set_major_formatter(DateFormatter('%m-%d'))
+        ax1.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
+        
+        # Grid and legends
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(loc='upper left')
+        ax2.legend(loc='upper right')
+        
+        plt.tight_layout()
+        return fig
     
-    # Create charts
-    chart1 = gold.create_chart()
-    chart2 = gold.create_intraday_chart()
-    
-    plt.show()
-
-def analyze_sp500():
-    """Example: Analyze S&P 500"""
-    print("Analyzing S&P 500 (ES=F)...")
-    sp500 = AstroTradingFramework(symbol='ES=F', price=4500, date=datetime(2025, 8, 4))
-    sp500.generate_signals()
-    sp500.generate_intraday_analysis()
-    sp500.print_analysis()
-    
-    # Create charts
-    chart1 = sp500.create_chart()
-    chart2 = sp500.create_intraday_chart()
-    
-    plt.show()
-
-def analyze_eurusd():
-    """Example: Analyze EUR/USD"""
-    print("Analyzing EUR/USD...")
-    eurusd = AstroTradingFramework(symbol='EUR/USD', price=1.0850, date=datetime(2025, 8, 4))
-    eurusd.generate_signals()
-    eurusd.generate_intraday_analysis()
-    eurusd.print_analysis()
-    
-    # Create charts
-    chart1 = eurusd.create_chart()
-    chart2 = eurusd.create_intraday_chart()
-    
-    plt.show()
-
-def analyze_bitcoin():
-    """Example: Analyze Bitcoin"""
-    print("Analyzing Bitcoin (BTC/USD)...")
-    bitcoin = AstroTradingFramework(symbol='BTC/USD', price=65000, date=datetime(2025, 8, 4))
-    bitcoin.generate_signals()
-    bitcoin.generate_intraday_analysis()
-    bitcoin.print_analysis()
-    
-    # Create charts
-    chart1 = bitcoin.create_chart()
-    chart2 = bitcoin.create_intraday_chart()
-    
-    plt.show()
-
-def analyze_custom_symbol():
-    """Example: Analyze a custom symbol"""
-    symbol = input("Enter symbol (e.g., AAPL, USD/JPY): ")
-    price = float(input("Enter current price: "))
-    
-    # Optional: Enter date (default: today)
-    date_input = input("Enter date (YYYY-MM-DD) or press Enter for today: ")
-    if date_input:
-        year, month, day = map(int, date_input.split('-'))
-        date = datetime(year, month, day)
-    else:
-        date = datetime.now()
-    
-    print(f"\nAnalyzing {symbol}...")
-    custom = AstroTradingFramework(symbol=symbol, price=price, date=date)
-    custom.generate_signals()
-    custom.generate_intraday_analysis()
-    custom.print_analysis()
-    
-    # Create charts
-    chart1 = custom.create_chart()
-    chart2 = custom.create_intraday_chart()
-    
-    plt.show()
+    def get_analysis_dataframe(self, analysis_type='intraday'):
+        """Return analysis results as a DataFrame"""
+        if analysis_type == 'intraday' and self.intraday_analysis:
+            return pd.DataFrame(self.intraday_analysis)
+        elif analysis_type == 'weekly' and self.weekly_analysis:
+            df = pd.DataFrame(self.weekly_analysis)
+            df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+            return df
+        elif analysis_type == 'monthly' and self.monthly_analysis:
+            df = pd.DataFrame(self.monthly_analysis)
+            df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+            return df
+        return pd.DataFrame()
 
 # ======================
-# MAIN MENU
+# STREAMLIT APP
 # ======================
 
 def main():
-    """Main menu for the astrological trading framework"""
-    while True:
-        print("\n=== ASTROLOGICAL TRADING FRAMEWORK ===")
-        print("1. Analyze Gold (GC=F)")
-        print("2. Analyze S&P 500 (ES=F)")
-        print("3. Analyze EUR/USD")
-        print("4. Analyze Bitcoin (BTC/USD)")
-        print("5. Analyze Custom Symbol")
-        print("0. Exit")
+    # Set page configuration
+    st.set_page_config(
+        page_title="Astrological Trading Analysis",
+        page_icon="✨",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Add custom CSS
+    st.markdown("""
+    <style>
+    .main-header {
+        font-size: 3rem !important;
+        color: #1E88E5;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .sub-header {
+        font-size: 1.5rem !important;
+        color: #43A047;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .stButton button {
+        background-color: #1E88E5;
+        color: white;
+        font-weight: bold;
+    }
+    .chart-container {
+        margin-top: 2rem;
+        margin-bottom: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header
+    st.markdown("<h1 class='main-header'>✨ Astrological Trading Analysis</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='sub-header'>Planetary influences on financial markets</p>", unsafe_allow_html=True)
+    
+    # Sidebar inputs
+    st.sidebar.header("Analysis Parameters")
+    
+    # Symbol selection
+    symbol_options = ['NIFTY', 'BANKNIFTY', 'CRUDE', 'SILVER', 'GOLD', 'Custom']
+    selected_symbol = st.sidebar.selectbox("Select Symbol", symbol_options)
+    
+    if selected_symbol == 'Custom':
+        custom_symbol = st.sidebar.text_input("Enter Custom Symbol")
+        symbol = custom_symbol if custom_symbol else 'CUSTOM'
+    else:
+        symbol = selected_symbol
+    
+    # Price input
+    price = st.sidebar.number_input("Enter Current Price", min_value=0.0, value=100.0, step=0.01)
+    
+    # Date selection
+    selected_date = st.sidebar.date_input("Select Date", datetime.now())
+    
+    # Analysis type
+    analysis_type = st.sidebar.radio("Analysis Type", ["Daily", "Intraday", "Weekly", "Monthly"])
+    
+    # Custom market hours for intraday
+    market_hours = None
+    if analysis_type == "Intraday":
+        use_custom_hours = st.sidebar.checkbox("Use Custom Market Hours")
         
-        choice = input("\nEnter your choice: ")
+        if use_custom_hours:
+            col1, col2 = st.sidebar.columns(2)
+            
+            with col1:
+                start_hour = st.selectbox("Start Hour", list(range(0, 24)), index=9)
+                start_minute = st.selectbox("Start Minute", [0, 15, 30, 45], index=1)
+            
+            with col2:
+                end_hour = st.selectbox("End Hour", list(range(0, 24)), index=15)
+                end_minute = st.selectbox("End Minute", [0, 15, 30, 45], index=2)
+            
+            market_hours = (start_hour, start_minute, end_hour, end_minute)
+            st.sidebar.write(f"Custom Hours: {start_hour:02d}:{start_minute:02d} - {end_hour:02d}:{end_minute:02d}")
+    
+    # Analyze button
+    analyze_button = st.sidebar.button("Analyze", key="analyze")
+    
+    # Main content area
+    if analyze_button:
+        # Create analysis object
+        analysis = AstroTradingFramework(
+            symbol=symbol, 
+            price=price, 
+            date=selected_date,
+            market_hours=market_hours
+        )
         
-        if choice == '1':
-            analyze_gold()
-        elif choice == '2':
-            analyze_sp500()
-        elif choice == '3':
-            analyze_eurusd()
-        elif choice == '4':
-            analyze_bitcoin()
-        elif choice == '5':
-            analyze_custom_symbol()
-        elif choice == '0':
-            print("Exiting...")
-            break
+        # Generate signals
+        analysis.generate_signals()
+        
+        # Generate analysis based on type
+        if analysis_type == "Intraday":
+            analysis.generate_intraday_analysis()
+        elif analysis_type == "Weekly":
+            analysis.generate_weekly_analysis()
+        elif analysis_type == "Monthly":
+            analysis.generate_monthly_analysis()
+        
+        # Display results
+        st.header(f"{symbol} Analysis Results")
+        
+        # Display planetary positions
+        st.subheader("Planetary Positions")
+        planet_data = []
+        for planet, angle in analysis.planetary_positions.items():
+            zodiac = analysis._get_zodiac_from_angle(angle)
+            planet_data.append({"Planet": planet, "Angle": f"{angle:.2f}°", "Zodiac": zodiac})
+        
+        planet_df = pd.DataFrame(planet_data)
+        st.dataframe(planet_df, use_container_width=True)
+        
+        # Display price positions
+        st.subheader("Price Positions")
+        price_data = []
+        for method, data in analysis.price_positions.items():
+            price_data.append({
+                "Method": method, 
+                "Description": data['description'], 
+                "Angle": f"{data['angle']:.2f}°", 
+                "Zodiac": data['zodiac']
+            })
+        
+        price_df = pd.DataFrame(price_data)
+        st.dataframe(price_df, use_container_width=True)
+        
+        # Display aspects
+        st.subheader("Aspects")
+        if analysis.aspects:
+            aspect_data = []
+            for method, aspects in analysis.aspects.items():
+                for aspect in aspects:
+                    aspect_data.append({
+                        "Method": method,
+                        "Planet": aspect['planet'],
+                        "Aspect": aspect['aspect'],
+                        "Orb": f"{aspect['orb']:.2f}°",
+                        "Strength": aspect['strength']
+                    })
+            
+            aspect_df = pd.DataFrame(aspect_data)
+            st.dataframe(aspect_df, use_container_width=True)
         else:
-            print("Invalid choice. Please try again.")
+            st.info("No significant aspects found")
+        
+        # Display trading signals
+        st.subheader("Trading Signals")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown("#### Buy Signals")
+            if analysis.signals['buy']:
+                for signal in analysis.signals['buy']:
+                    st.success(f"{signal['reason']} (Strength: {signal['strength']}/5)")
+            else:
+                st.info("No buy signals")
+        
+        with col2:
+            st.markdown("#### Sell Signals")
+            if analysis.signals['sell']:
+                for signal in analysis.signals['sell']:
+                    st.error(f"{signal['reason']} (Strength: {signal['strength']}/5)")
+            else:
+                st.info("No sell signals")
+        
+        with col3:
+            st.markdown("#### Caution Signals")
+            if analysis.signals['caution']:
+                for signal in analysis.signals['caution']:
+                    st.warning(f"{signal['reason']} (Strength: {signal['strength']}/5)")
+            else:
+                st.info("No caution signals")
+        
+        with col4:
+            st.markdown("#### Opportunity Signals")
+            if analysis.signals['opportunity']:
+                for signal in analysis.signals['opportunity']:
+                    st.info(f"{signal['reason']} (Strength: {signal['strength']}/5)")
+            else:
+                st.info("No opportunity signals")
+        
+        # Display analysis data
+        if analysis_type in ["Intraday", "Weekly", "Monthly"]:
+            st.subheader(f"{analysis_type} Analysis")
+            
+            # Get DataFrame
+            df = analysis.get_analysis_dataframe(analysis_type.lower())
+            
+            if not df.empty:
+                st.dataframe(df, use_container_width=True)
+                
+                # Display key periods
+                if analysis_type == "Intraday":
+                    key_periods = [a for a in analysis.intraday_analysis if a['price_strength'] >= 3]
+                elif analysis_type == "Weekly":
+                    key_periods = [a for a in analysis.weekly_analysis if a['price_strength'] >= 3]
+                elif analysis_type == "Monthly":
+                    key_periods = [a for a in analysis.monthly_analysis if a['price_strength'] >= 3]
+                
+                if key_periods:
+                    st.subheader(f"Key {analysis_type} Periods")
+                    for period in key_periods:
+                        if analysis_type == "Intraday":
+                            time_key = period['time']
+                        elif analysis_type == "Weekly":
+                            time_key = f"{period['day_name']} ({period['date'].strftime('%m-%d')})"
+                        elif analysis_type == "Monthly":
+                            time_key = f"Day {period['day']} ({period['date'].strftime('%m-%d')})"
+                        
+                        if period['price_direction'] == 'Bullish':
+                            st.success(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
+                        elif period['price_direction'] == 'Bearish':
+                            st.error(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
+                        else:
+                            st.info(f"{time_key}: {period['price_direction']} (Strength {period['price_strength']})")
+        
+        # Display charts
+        st.subheader("Visualizations")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### Astrological Chart")
+            fig1 = analysis.create_chart()
+            st.pyplot(fig1)
+        
+        with col2:
+            if analysis_type == "Intraday":
+                st.markdown("#### Intraday Price Prediction")
+                fig2 = analysis.create_intraday_chart()
+                st.pyplot(fig2)
+            elif analysis_type == "Weekly":
+                st.markdown("#### Weekly Price Prediction with Transits")
+                fig2 = analysis.create_weekly_chart()
+                st.pyplot(fig2)
+            elif analysis_type == "Monthly":
+                st.markdown("#### Monthly Price Prediction with Transits")
+                fig2 = analysis.create_monthly_chart()
+                st.pyplot(fig2)
+            else:
+                st.info("Additional charts not available for daily analysis")
+        
+        # Add disclaimer
+        st.markdown("---")
+        st.markdown("**Disclaimer**: This tool is for educational purposes only. Astrological analysis should not be used as the sole basis for trading decisions. Always conduct thorough research and consider multiple factors before making financial decisions.")
 
 if __name__ == "__main__":
     main()
