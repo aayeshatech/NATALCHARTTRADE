@@ -1,4 +1,4 @@
-# app.py - Enhanced Streamlit Astrological Trading Analysis App
+# app.py - Fixed Streamlit Astrological Trading Analysis App
 
 import streamlit as st
 import numpy as np
@@ -271,14 +271,32 @@ class AstroTradingFramework:
         """Generate intraday analysis with price predictions"""
         start_hour, start_minute, end_hour, end_minute = self.market_hours
         
+        # Validate market hours
+        if not (0 <= start_hour <= 23 and 0 <= start_minute <= 59):
+            st.error(f"Invalid start time: {start_hour}:{start_minute}")
+            return
+        if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59):
+            st.error(f"Invalid end time: {end_hour}:{end_minute}")
+            return
+        
         # Create time grid for analysis (hourly)
         hours = []
-        current_time = self.date.replace(hour=start_hour, minute=start_minute)
-        end_time = self.date.replace(hour=end_hour, minute=end_minute)
-        
-        while current_time <= end_time:
-            hours.append(current_time.hour + current_time.minute/60)
-            current_time += timedelta(hours=1)
+        try:
+            # Create a base date with the start time
+            base_date = self.date.replace(hour=start_hour, minute=start_minute)
+            end_time = self.date.replace(hour=end_hour, minute=end_minute)
+            
+            # Handle case where end_time is earlier than start_time (crosses midnight)
+            if end_time < base_date:
+                end_time = end_time + timedelta(days=1)
+            
+            current_time = base_date
+            while current_time <= end_time:
+                hours.append(current_time.hour + current_time.minute/60)
+                current_time += timedelta(hours=1)
+        except Exception as e:
+            st.error(f"Error creating time grid: {e}")
+            return
         
         analysis = []
         
@@ -386,11 +404,12 @@ class AstroTradingFramework:
                             })
             
             # Determine price direction and strength
-            price_direction, price_strength = self._predict_price_movement(price_aspects, date.hour)
+            # Use noon as representative hour for daily analysis
+            price_direction, price_strength = self._predict_price_movement(price_aspects, 12)
             
             # Calculate expected price range
             expected_high, expected_low = self._calculate_price_range(
-                self.price, price_direction, price_strength, date.hour
+                self.price, price_direction, price_strength, 12
             )
             
             # Simulate actual price (for demonstration)
@@ -469,11 +488,12 @@ class AstroTradingFramework:
                             })
             
             # Determine price direction and strength
-            price_direction, price_strength = self._predict_price_movement(price_aspects, date.hour)
+            # Use noon as representative hour for daily analysis
+            price_direction, price_strength = self._predict_price_movement(price_aspects, 12)
             
             # Calculate expected price range
             expected_high, expected_low = self._calculate_price_range(
-                self.price, price_direction, price_strength, date.hour
+                self.price, price_direction, price_strength, 12
             )
             
             # Simulate actual price (for demonstration)
