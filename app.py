@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pytz
 import pandas as pd
 from matplotlib.dates import DateFormatter, DayLocator
@@ -60,7 +60,15 @@ class AstroTradingFramework:
     def __init__(self, symbol, price, date=None, market_hours=None):
         self.symbol = symbol.upper()
         self.price = price
-        self.date = date if date else datetime.now()
+        
+        # Handle date input - ensure it's a datetime object
+        if date is None:
+            self.date = datetime.now()
+        elif isinstance(date, datetime):
+            self.date = date
+        else:
+            # It's a date object, convert to datetime
+            self.date = datetime.combine(date, datetime.min.time())
         
         # Get market configuration
         if self.symbol in MARKET_CONFIGS:
@@ -282,9 +290,9 @@ class AstroTradingFramework:
         # Create time grid for analysis (hourly)
         hours = []
         try:
-            # Create a base date with the start time
-            base_date = self.date.replace(hour=start_hour, minute=start_minute)
-            end_time = self.date.replace(hour=end_hour, minute=end_minute)
+            # Create a base datetime with the start time
+            base_date = datetime(self.date.year, self.date.month, self.date.day, start_hour, start_minute)
+            end_time = datetime(self.date.year, self.date.month, self.date.day, end_hour, end_minute)
             
             # Handle case where end_time is earlier than start_time (crosses midnight)
             if end_time < base_date:
@@ -374,7 +382,7 @@ class AstroTradingFramework:
             planet_positions = self.planetary_positions.copy()
             
             # Simulate daily planetary movement
-            days_diff = (date - self.date).days
+            days_diff = (date - self.date.date()).days
             for planet in planet_positions:
                 daily_speed = {
                     'Sun': 1.0, 'Moon': 13.2, 'Mercury': 1.2, 'Venus': 1.1,
@@ -458,7 +466,7 @@ class AstroTradingFramework:
             planet_positions = self.planetary_positions.copy()
             
             # Simulate daily planetary movement
-            days_diff = (date - self.date).days
+            days_diff = (date - self.date.date()).days
             for planet in planet_positions:
                 daily_speed = {
                     'Sun': 1.0, 'Moon': 13.2, 'Mercury': 1.2, 'Venus': 1.1,
@@ -689,8 +697,17 @@ class AstroTradingFramework:
     
     def create_intraday_chart(self):
         """Create intraday price prediction chart"""
+        # Check if intraday analysis exists, if not generate it
         if not self.intraday_analysis:
             self.generate_intraday_analysis()
+        
+        # If still no analysis, return an empty figure
+        if not self.intraday_analysis:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No intraday data available", 
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=16)
+            return fig
         
         # Prepare data
         hours = [a['hour'] for a in self.intraday_analysis]
@@ -747,8 +764,17 @@ class AstroTradingFramework:
     
     def create_weekly_chart(self):
         """Create weekly price prediction chart with planetary transits"""
+        # Check if weekly analysis exists, if not generate it
         if not self.weekly_analysis:
             self.generate_weekly_analysis()
+        
+        # If still no analysis, return an empty figure
+        if not self.weekly_analysis:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No weekly data available", 
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=16)
+            return fig
         
         # Prepare data
         dates = [a['date'] for a in self.weekly_analysis]
@@ -806,8 +832,17 @@ class AstroTradingFramework:
     
     def create_monthly_chart(self):
         """Create monthly price prediction chart with planetary transits"""
+        # Check if monthly analysis exists, if not generate it
         if not self.monthly_analysis:
             self.generate_monthly_analysis()
+        
+        # If still no analysis, return an empty figure
+        if not self.monthly_analysis:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, "No monthly data available", 
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=16)
+            return fig
         
         # Prepare data
         dates = [a['date'] for a in self.monthly_analysis]
@@ -938,7 +973,7 @@ def main():
     price = st.sidebar.number_input("Enter Current Price", min_value=0.0, value=100.0, step=0.01)
     
     # Date selection
-    selected_date = st.sidebar.date_input("Select Date", datetime.now())
+    selected_date = st.sidebar.date_input("Select Date", datetime.now().date())
     
     # Analysis type
     analysis_type = st.sidebar.radio("Analysis Type", ["Daily", "Intraday", "Weekly", "Monthly"])
